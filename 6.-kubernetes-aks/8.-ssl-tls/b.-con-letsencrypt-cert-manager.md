@@ -12,11 +12,11 @@ helm install \
   stable/cert-manager
 ```
 
-con esto, instalamos el add-on bajo el namespace kube-system, disponible  desde el resto de namespaces.
+con esto, instalamos el add-on bajo el namespace kube-system, disponible desde el resto de namespaces.
 
 El tipo de validación que vamos a seguir es [validación por DNS](https://cert-manager.readthedocs.io/en/latest/tutorials/acme/dns-validation.html)
 
-#### Issuer
+## Issuer
 
 Issuer es un componente nuevo que añade el add-on. Este componente se encargará de gestionar la obtención del certificado. Solo sabe de la configuración, es decir, no sabe que dominio tiene que aplicar, solo sabe el como. Del dominio se encargará el `certificate` como veremos más adelante.
 
@@ -64,7 +64,7 @@ Como se puede ver, se especifica el servidor de la API de LetsEncrypt que tiene 
 Es importante utilizar el _staging_ de la api de _letsencrypt_ durante las pruebas y cuando veamos que ha tenido éxito, utilizar la URL de producción \(comentada en la línea 7\) debido a los límites de uso de la API de _letsencrypt_, que puede llegar a hacerte esperar una semana.
 {% endhint %}
 
-Como es obvio necesitamos el secret con la clave de AWS 
+Como es obvio necesitamos el secret con la clave de AWS
 
 {% code-tabs %}
 {% code-tabs-item title="infrastructure/kubernetes/staging/secrets/route53.yaml" %}
@@ -85,7 +85,7 @@ data:
 kubectl create -f infrastructure/kubernetes/staging/secrets/route53.yaml --namespace=staging
 ```
 
-#### Certificate
+## Certificate
 
 Una vez tenemos creado el Issuer, ahora toca el certificate donde indicaremos que Issuer vamos a utilizar, para qué dominios necesitamos generar el certificado y el nombre del secret donde se guardará el mismo.
 

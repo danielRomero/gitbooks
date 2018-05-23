@@ -17,5 +17,3 @@ Hay distintas maneras de gestionar ese secret.
 1. [Con nuestro propio certificado](a.-con-mi-certificado.md)
 2. [Generando uno automáticamente con LetsEncrypt \(validación vía Route53 API\)](b.-con-letsencrypt-cert-manager.md)
 
-
-

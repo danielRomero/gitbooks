@@ -21,5 +21,3 @@
 
 En el Kubernetes de Azure \(AKS\) ya tenemos instalado [Helm](https://docs.helm.sh/), un gestor de paquetes para Kubernetes.
 
-
-
