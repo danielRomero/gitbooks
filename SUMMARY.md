@@ -1,7 +1,6 @@
 # Table of contents
 
 * [Introduction](README.md)
-* Rails + Sidekiq + Kubernetes + Azure
 * [Índice](indice.md)
 * [1. Azure](1.-azure.md)
 * [2. Rails](2.-rails.md)
