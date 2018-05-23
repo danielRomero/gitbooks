@@ -8,7 +8,7 @@ Este documento tratará de explicar como crear y gestionar una aplicación Ruby 
 Antes de continuar:
 
 * Esto no pretende ser una guía para aplicaciones en producción.
-* El que escribe no tiene ni idea de lo que está haciendo, pero en su local funciona \`¯\\_\(ツ\)\_/¯\`
+* El que escribe no tiene ni idea de lo que está haciendo, pero en su local funciona ¯\\_\(ツ\)\_/¯
 {% endhint %}
 
 
