@@ -1,0 +1,295 @@
+# 9. Full code
+
+
+
+{% tabs %}
+{% tab title=".gitlab-ci.yml" %}
+{% code-tabs %}
+{% code-tabs-item title=".gitlab-ci.yml" %}
+```yaml
+######################################################################################################
+##                      MyApp CI-CD via GitLab                                                     ##
+##                                                                                                  ##
+## Required ENV-VARS setting on gitlab:                                                             ##
+##                                                                                                  ##
+##   - kube_config: A base64 encoded credentials to access the Kubernetes cluster on Azure          ##
+##                  extracted from local with `cat ~/.kube/config | base64`                         ##
+##                                                                                                  ##
+##   - ACR_PASSWORD: A base64 encoded credentials to access the ACR (docker container registry)     ##
+##                                                                                                  ##
+######################################################################################################
+
+# Cache gems in between builds
+cache:
+  paths:
+  - vendor/
+
+stages:
+  - codequality
+  - test
+  - build
+  - deploy
+  - rollback
+
+##########
+## TEST ##
+##########
+
+.ruby_template: &ruby_definition
+  # Official language image. Look for the different tagged releases at:
+  # https://hub.docker.com/r/library/ruby/tags/
+  image: ruby:2.3.6
+  before_script:
+    - ruby -v # Print out ruby version for debugging
+    - gem install bundler --no-ri --no-rdoc
+    - bundle install -j $(nproc) --path vendor
+
+# https://backoffice.shoppermotion.com/help/ci/examples/README.md
+rails_test:
+  <<: *ruby_definition
+  stage: test
+  services:
+  - mysql:latest
+  - redis:4.0.8-alpine
+  variables:
+    MYSQL_DB: myapp_test
+    MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+    GOOGLE_MAPS_API_KEY: xxXXxXXxXX
+    REDIS_URL: redis://redis:6379
+    TEST_ENV_NUMBER: 2
+    RAILS_ENV: test
+  script:
+  # Running rails tests with parallel_tests gem https://github.com/grosser/parallel_tests
+  - cp config/database.yml.gitlab config/database.yml
+  - bundle exec rake parallel:create RAILS_ENV=test
+  - bundle exec rake parallel:load_schema RAILS_ENV=test
+  - bundle exec rake parallel:spec RAILS_ENV=test
+
+#################
+## CodeQuality ##
+#################
+
+rubocop:
+  <<: *ruby_definition
+  stage: codequality
+  script:
+  - bundle exec rubocop
+
+###########
+## Build ##
+###########
+
+docker:
+  image: docker:dind
+  stage: build
+  script:
+    - apk add --update build-base bash git
+    - DOCKER_PASSWORD=$(echo ${ACR_PASSWORD} | base64 -d)
+    - DOCKER_PASSWORD=$DOCKER_PASSWORD make -f Makefile.build
+
+############
+## Deploy ##
+############
+
+# https://blog.lwolf.org/post/how-to-create-ci-cd-pipeline-with-autodeploy-k8s-gitlab-helm/
+.kubernetes_template: &kubernetes_definition
+  # Base image: Linux Alpine with kubernetes installed
+  image: dtzar/helm-kubectl
+  before_script:
+    # install OS deps
+    - apk add --update bash git build-base
+    # prepare ENV vars
+    - TAG=$(git log -1 --pretty=%H)
+    - KUBEFOLDER=/root/.kube
+    - KUBECONFIG=$KUBEFOLDER/config
+    # prepare Kubernetes login credentials folder
+    - mkdir -p $KUBEFOLDER
+    - touch $KUBECONFIG
+    # drop credentials to kubernetes folder
+    - echo ${kube_config} | base64 -d > $KUBECONFIG
+    # debug
+    - echo "deploy to Kubernetes namespace $KUBE_ENV"
+    # set kubernetes context to environment namespace
+    - kubectl config set-context $(kubectl config current-context) --namespace=$KUBE_ENV
+
+staging:
+  <<: *kubernetes_definition
+  stage: deploy
+  variables:
+    KUBE_ENV: staging # staging
+  environment:
+    name: staging
+  only:
+    - staging # branch name
+  script:
+    - make -f Makefile.deploy migrate
+    - make -f Makefile.deploy deploy
+
+production:
+  <<: *kubernetes_definition
+  stage: deploy
+  variables:
+    KUBE_ENV: production
+  environment:
+    name: production
+
+  when: manual
+  only:
+    - production # branch name
+  script:
+    - make -f Makefile.deploy migrate
+    - make -f Makefile.deploy deploy
+
+##############
+## Rollback ##
+##############
+
+rollback_staging:
+  <<: *kubernetes_definition
+  stage: rollback
+  variables:
+    KUBE_ENV: staging
+  environment:
+    name: staging
+  when: manual
+  only:
+    - staging # branch name
+  script:
+    - make -f Makefile.deploy rollback
+
+rollback_production:
+  <<: *kubernetes_definition
+  stage: rollback
+  variables:
+    KUBE_ENV: production
+  environment:
+    name: production
+  when: manual
+  only:
+    - production # branch name
+  script:
+    - make -f Makefile.deploy rollback
+
+```
+{% endcode-tabs-item %}
+{% endcode-tabs %}
+{% endtab %}
+
+{% tab title="Makefile.build" %}
+{% code-tabs %}
+{% code-tabs-item title="Makefile.build" %}
+```bash
+####################### VARS #######################
+
+BUILDER_DOCKERFILE := infrastructure/dockerfiles/builder.Dockerfile
+APP_DOCKERFILE := infrastructure/dockerfiles/app.Dockerfile
+WEB_DOCKERFILE := infrastructure/dockerfiles/web.Dockerfile
+SIDEKIQ_DOCKERFILE := infrastructure/dockerfiles/sidekiq.Dockerfile
+
+PROJECT_ID := myrailsproyect
+HOSTNAME   := myacrname.azurecr.io
+DOCKER_USER := myacrusername
+
+# IMAGE NAMES
+BUILDER_NAME := builder
+APP_NAME := app
+WEB_NAME := web
+SIDEKIQ_NAME := sidekiq
+
+REGISTRY_NAME := ${HOSTNAME}/${PROJECT_ID}
+
+# COMMIT TAG ID
+TAG := $$(git log -1 --pretty=%H)
+
+# COMMIT TAG
+BUILDER_IMG := ${REGISTRY_NAME}/${BUILDER_NAME}:${TAG}
+APP_IMG := ${REGISTRY_NAME}/${APP_NAME}:${TAG}
+WEB_IMG := ${REGISTRY_NAME}/${WEB_NAME}:${TAG}
+SIDEKIQ_IMG := ${REGISTRY_NAME}/${SIDEKIQ_NAME}:${TAG}
+
+#LATEST TAG
+BUILDER_LATEST := ${REGISTRY_NAME}/${BUILDER_NAME}:latest
+APP_LATEST := ${REGISTRY_NAME}/${APP_NAME}:latest
+WEB_LATEST := ${REGISTRY_NAME}/${WEB_NAME}:latest
+SIDEKIQ_LATEST := ${REGISTRY_NAME}/${SIDEKIQ_NAME}:latest
+
+##################### COMMANDS #####################
+
+all: builder app web sidekiq
+builder: login build_builder push_builder
+app: login build_app push_app
+web: login build_web push_web
+sidekiq: login build_sidekiq push_sidekiq
+
+#################### FUNCTIONS #####################
+
+#### LOGIN AZURE CONTAINER REGISTRY
+login:
+	docker login ${HOSTNAME} -u ${DOCKER_USER} -p ${DOCKER_PASSWORD}
+
+## BUILDER
+build_builder:
+	docker build -t ${BUILDER_IMG} -f ${BUILDER_DOCKERFILE} .
+	docker tag ${BUILDER_IMG} ${BUILDER_LATEST}
+
+push_builder:
+	docker push ${BUILDER_LATEST}
+	docker push ${BUILDER_IMG}
+
+## WEB
+build_web:
+	docker build -t ${WEB_IMG} -f ${WEB_DOCKERFILE} .
+	docker tag ${WEB_IMG} ${WEB_LATEST}
+
+push_web:
+	docker push ${WEB_LATEST}
+	docker push ${WEB_IMG}
+
+## APP
+build_app:
+	docker build -t ${APP_IMG} -f ${APP_DOCKERFILE} .
+	docker tag ${APP_IMG} ${APP_LATEST}
+
+push_app:
+	docker push ${APP_LATEST}
+	docker push ${APP_IMG}
+
+## SIDEKIQ
+build_sidekiq:
+	docker build -t ${SIDEKIQ_IMG} -f ${SIDEKIQ_DOCKERFILE} .
+	docker tag ${SIDEKIQ_IMG} ${SIDEKIQ_LATEST}
+
+push_sidekiq:
+	docker push ${SIDEKIQ_LATEST}
+	docker push ${SIDEKIQ_IMG}
+
+```
+{% endcode-tabs-item %}
+{% endcode-tabs %}
+{% endtab %}
+
+{% tab title="Makefile.deploy" %}
+{% code-tabs %}
+{% code-tabs-item title="Makefile.deploy" %}
+```bash
+migrate:
+	# Check pending DB migrations
+	kubectl delete job myapp-db-migrate
+	kubectl create -f infrastructure/kubernetes/jobs/db-migrate.yaml
+
+deploy:
+	# deploy the new images to the namespace
+	kubectl set image deployment/myapp-nginx nginx=myacrname.azurecr.io/myrailsproyect/web:${TAG}
+	kubectl set image deployment/myapp-rails myapp-backend=myacrname.azurecr.io/myrailsproyect/app:${TAG}
+	kubectl set image deployment/myapp-sidekiq myapp-sidekiq=myacrname.azurecr.io/myrailsproyect/sidekiq:${TAG}
+
+rollback:
+	kubectl rollout undo deployment/myapp-nginx
+	kubectl rollout undo deployment/myapp-rails
+	kubectl rollout undo deployment/myapp-sidekiq
+```
+{% endcode-tabs-item %}
+{% endcode-tabs %}
+{% endtab %}
+{% endtabs %}
+
