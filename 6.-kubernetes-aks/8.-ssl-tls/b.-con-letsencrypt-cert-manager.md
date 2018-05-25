@@ -4,6 +4,8 @@ Esta manera de conseguir el certificado es un poco más compleja.
 
 {% hint style="info" %}
 Necesitamos tener [Helm](https://github.com/kubernetes/helm/blob/master/docs/install.md) instalado.
+
+También necesitamos [Tiller](https://docs.microsoft.com/en-us/azure/aks/integrate-azure).
 {% endhint %}
 
 En primer lugar necesitamos instalar [cert-manager](https://github.com/jetstack/cert-manager/), un add-on para kubernetes que nos ayuda a obtener certificados de _lets-encrypt_ para nuestra aplicación. Para ello, lo instalamos vía [`Helm`](https://helm.sh/).
